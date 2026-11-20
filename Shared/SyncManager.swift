@@ -1,0 +1,166 @@
+import Foundation
+import WatchConnectivity
+
+/// Sincronizza conversazioni e impostazioni tra iPhone e Apple Watch.
+///
+/// - Le singole modifiche viaggiano con `transferUserInfo` (in coda, consegnate anche
+///   se l'altro dispositivo non è raggiungibile in quel momento).
+/// - All'avvio ogni lato chiede all'altro uno stato completo, inviato come file.
+/// - La chiave API e le impostazioni vanno dall'iPhone al Watch con l'application context.
+@MainActor
+final class SyncManager: NSObject {
+    static let shared = SyncManager()
+
+    private weak var store: ConversationStore?
+    private weak var settings: SettingsStore?
+    private(set) var isActive = false
+
+    private var session: WCSession? { WCSession.isSupported() ? .default : nil }
+
+    func start(store: ConversationStore, settings: SettingsStore) {
+        self.store = store
+        self.settings = settings
+        store.onUpsert = { [weak self] in self?.sendUpsert($0) }
+        store.onDelete = { [weak self] in self?.sendDelete($0) }
+        #if os(iOS)
+        settings.onChange = { [weak self] in self?.pushSettings() }
+        #endif
+        session?.delegate = self
+        session?.activate()
+    }
+
+    private var canSend: Bool {
+        guard let session, session.activationState == .activated else { return false }
+        #if os(iOS)
+        return session.isPaired && session.isWatchAppInstalled
+        #else
+        return true
+        #endif
+    }
+
+    // MARK: Invio
+
+    private func sendUpsert(_ conversation: Conversation) {
+        guard canSend, let data = try? JSONEncoder().encode(conversation) else { return }
+        session?.transferUserInfo(["kind": "upsert", "data": data])
+    }
+
+    private func sendDelete(_ id: UUID) {
+        guard canSend else { return }
+        session?.transferUserInfo(["kind": "delete", "id": id.uuidString])
+    }
+
+    private func requestFullSync() {
+        guard canSend else { return }
+        session?.transferUserInfo(["kind": "requestFull"])
+    }
+
+    private func sendFullSync() {
+        guard canSend, let data = try? store?.exportState() else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("polso-sync-\(UUID().uuidString).json")
+        guard (try? data.write(to: url)) != nil else { return }
+        session?.transferFile(url, metadata: ["kind": "full"])
+    }
+
+    #if os(iOS)
+    func pushSettings() {
+        guard canSend, let settings else { return }
+        try? session?.updateApplicationContext([
+            "apiKey": settings.apiKey ?? "",
+            "defaultModel": settings.defaultModel,
+            "effort": settings.effort.rawValue,
+        ])
+    }
+    #endif
+
+    // MARK: Ricezione
+
+    fileprivate func didActivate() {
+        isActive = true
+        #if os(iOS)
+        pushSettings()
+        #else
+        if let context = session?.receivedApplicationContext, !context.isEmpty {
+            applySettings(context)
+        }
+        #endif
+        requestFullSync()
+    }
+
+    fileprivate func handle(kind: String?, data: Data?, id: String?) {
+        switch kind {
+        case "upsert":
+            if let data, let conversation = try? JSONDecoder().decode(Conversation.self, from: data) {
+                store?.mergeRemote(conversation)
+            }
+        case "delete":
+            if let id, let uuid = UUID(uuidString: id) { store?.applyRemoteDelete(uuid) }
+        case "requestFull":
+            sendFullSync()
+        case "full":
+            if let data { store?.importState(data) }
+        default:
+            break
+        }
+    }
+
+    fileprivate func applySettings(_ context: [String: Any]) {
+        settings?.applyRemote(
+            apiKey: context["apiKey"] as? String,
+            defaultModel: context["defaultModel"] as? String,
+            effort: context["effort"] as? String
+        )
+        Task { await settings?.refreshModels() }
+    }
+}
+
+extension SyncManager: WCSessionDelegate {
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
+        guard state == .activated else { return }
+        Task { @MainActor in self.didActivate() }
+    }
+
+    #if os(iOS)
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        session.activate()
+    }
+
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        guard session.isPaired, session.isWatchAppInstalled else { return }
+        Task { @MainActor in
+            self.pushSettings()
+            self.sendFullSync()
+        }
+    }
+    #endif
+
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        let kind = userInfo["kind"] as? String
+        let data = userInfo["data"] as? Data
+        let id = userInfo["id"] as? String
+        Task { @MainActor in self.handle(kind: kind, data: data, id: id) }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        // Il file viene eliminato al termine di questo metodo: va letto subito.
+        let data = try? Data(contentsOf: file.fileURL)
+        let kind = file.metadata?["kind"] as? String
+        Task { @MainActor in self.handle(kind: kind, data: data, id: nil) }
+    }
+
+    nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        let apiKey = applicationContext["apiKey"] as? String
+        let model = applicationContext["defaultModel"] as? String
+        let effort = applicationContext["effort"] as? String
+        Task { @MainActor in
+            self.applySettings(["apiKey": apiKey as Any, "defaultModel": model as Any, "effort": effort as Any])
+        }
+    }
+}

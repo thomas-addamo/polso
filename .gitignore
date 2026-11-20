@@ -1,0 +1,8 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/
+xcuserdata/
+*.xcuserstate
+.DS_Store
+# Il progetto Xcode si rigenera con `xcodegen generate`
