@@ -218,7 +218,26 @@ enum PayloadBuilder {
         conversation.messages.compactMap { message -> JSONValue? in
             switch message.role {
             case .user:
-                return ["role": "user", "content": [["type": "text", "text": .string(message.text)]]]
+                var blocks: [JSONValue] = []
+                for attachment in message.attachments ?? [] {
+                    if let data = ImageStore.data(for: attachment.id) {
+                        blocks.append([
+                            "type": "image",
+                            "source": [
+                                "type": "base64",
+                                "media_type": .string(attachment.mediaType),
+                                "data": .string(data.base64EncodedString()),
+                            ],
+                        ])
+                    } else {
+                        blocks.append(["type": "text", "text": "[Immagine non ancora disponibile su questo dispositivo]"])
+                    }
+                }
+                if !message.text.isEmpty {
+                    blocks.append(["type": "text", "text": .string(message.text)])
+                }
+                guard !blocks.isEmpty else { return nil }
+                return ["role": "user", "content": .array(blocks)]
             case .assistant:
                 if message.isRefusal { return nil }
                 var blocks = message.rawContent ?? [["type": "text", "text": .string(message.text)]]

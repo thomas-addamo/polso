@@ -5,6 +5,8 @@ App per **Apple Watch** (con app compagna per iPhone) per chattare con Claude tr
 - **iPhone**: inserisci la chiave API, crea e gestisci le chat, scegli il modello predefinito e l'effort.
 - **Apple Watch**: vedi le chat già esistenti e rispondi a Claude con dettatura, Scribble o tastiera; puoi cambiare il modello di ogni chat.
 - **Modelli**: l'elenco arriva dalla Models API (`GET /v1/models`), quindi mostra i modelli disponibili per la tua chiave. Quello predefinito è `claude-sonnet-5-5`.
+- **Immagini**: allega fino a 4 foto per messaggio (libreria o fotocamera); vengono ridimensionate e sincronizzate anche sul Watch.
+- **Design**: Liquid Glass su iOS 26+, risposte con titoli, elenchi, citazioni e blocchi di codice copiabili, tema chiaro e scuro.
 - **Costi sotto controllo**: sotto ogni risposta c'è il costo stimato; l'elenco delle chat mostra la spesa del mese (iPhone + Watch). Le risposte sono limitate a 4.096 token.
 
 > **Nota:** l'API di Anthropic non dà accesso alle chat di claude.ai. Le "chat esistenti" sono quelle create in Polso, salvate sul dispositivo e sincronizzate tra iPhone e Watch.

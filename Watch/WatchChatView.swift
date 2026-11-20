@@ -85,7 +85,15 @@ private struct WatchBubble: View {
     let message: ChatMessage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 2) {
+            if let attachments = message.attachments {
+                ForEach(attachments) { attachment in
+                    AttachmentImage(attachment: attachment, contentMode: .fit)
+                        .frame(maxHeight: 120)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            if !message.text.isEmpty {
             MarkdownText(message.text)
                 .font(.footnote)
                 .padding(8)
@@ -95,6 +103,7 @@ private struct WatchBubble: View {
                     in: RoundedRectangle(cornerRadius: 12)
                 )
                 .opacity(message.isRefusal ? 0.6 : 1)
+            }
             if let cost = message.costUSD {
                 Text("≈ \(Pricing.format(cost))")
                     .font(.system(size: 10)).foregroundStyle(.tertiary)

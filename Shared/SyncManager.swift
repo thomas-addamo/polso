@@ -43,6 +43,22 @@ final class SyncManager: NSObject {
     private func sendUpsert(_ conversation: Conversation) {
         guard canSend, let data = try? JSONEncoder().encode(conversation) else { return }
         session?.transferUserInfo(["kind": "upsert", "data": data])
+        sendImages(in: [conversation], onlyNew: true)
+    }
+
+    /// Invia i file delle immagini allegate (una sola volta per immagine, salvo sincronizzazione completa).
+    private func sendImages(in conversations: [Conversation], onlyNew: Bool) {
+        guard canSend else { return }
+        var sent = Set(UserDefaults.standard.stringArray(forKey: "sentImages") ?? [])
+        for message in conversations.flatMap(\.messages) {
+            for attachment in message.attachments ?? [] {
+                let key = attachment.id.uuidString
+                guard !(onlyNew && sent.contains(key)), ImageStore.exists(attachment.id) else { continue }
+                session?.transferFile(ImageStore.url(for: attachment.id), metadata: ["kind": "image", "id": key])
+                sent.insert(key)
+            }
+        }
+        UserDefaults.standard.set(Array(sent), forKey: "sentImages")
     }
 
     private func sendDelete(_ id: UUID) {
@@ -61,6 +77,9 @@ final class SyncManager: NSObject {
             .appendingPathComponent("polso-sync-\(UUID().uuidString).json")
         guard (try? data.write(to: url)) != nil else { return }
         session?.transferFile(url, metadata: ["kind": "full"])
+        if let conversations = store?.conversations {
+            sendImages(in: conversations, onlyNew: false)
+        }
     }
 
     #if os(iOS)
@@ -100,6 +119,10 @@ final class SyncManager: NSObject {
             sendFullSync()
         case "full":
             if let data { store?.importState(data) }
+        case "image":
+            if let data, let id, let uuid = UUID(uuidString: id) {
+                ImageStore.shared.store(data, id: uuid)
+            }
         default:
             break
         }
@@ -148,11 +171,16 @@ extension SyncManager: WCSessionDelegate {
         // Il file viene eliminato al termine di questo metodo: va letto subito.
         let data = try? Data(contentsOf: file.fileURL)
         let kind = file.metadata?["kind"] as? String
-        Task { @MainActor in self.handle(kind: kind, data: data, id: nil) }
+        let id = file.metadata?["id"] as? String
+        Task { @MainActor in self.handle(kind: kind, data: data, id: id) }
     }
 
     nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
-        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
+        // Elimina solo i file temporanei della sincronizzazione completa, non le immagini.
+        let url = fileTransfer.file.fileURL
+        if url.lastPathComponent.hasPrefix("polso-sync-") {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {

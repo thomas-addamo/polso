@@ -191,7 +191,14 @@ final class SettingsStore {
     }
 
     func displayName(for modelID: String) -> String {
-        models.first { $0.id == modelID }?.displayName ?? modelID
+        if let name = models.first(where: { $0.id == modelID })?.displayName {
+            return name.replacingOccurrences(of: "Claude ", with: "")
+        }
+        // Senza elenco dei modelli: "claude-sonnet-5-5" diventa "Sonnet 5.5".
+        let parts = modelID.replacingOccurrences(of: "claude-", with: "").split(separator: "-")
+        guard let family = parts.first else { return modelID }
+        let version = parts.dropFirst().filter { $0.allSatisfy(\.isNumber) && $0.count <= 2 }
+        return ([family.capitalized] + (version.isEmpty ? [] : [version.joined(separator: ".")])).joined(separator: " ")
     }
 
     /// L'effort si invia solo ai modelli che lo supportano.
@@ -222,13 +229,25 @@ final class ChatService {
 
     func isSending(_ id: UUID) -> Bool { sending.contains(id) }
 
-    func send(_ text: String, to id: UUID) async {
+    func send(_ text: String, attachments: [Attachment] = [], to id: UUID) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !sending.contains(id), var conversation = store.conversation(id) else { return }
-        conversation.messages.append(ChatMessage(role: .user, text: trimmed))
+        guard !trimmed.isEmpty || !attachments.isEmpty,
+              !sending.contains(id), var conversation = store.conversation(id) else { return }
+        conversation.messages.append(ChatMessage(
+            role: .user, text: trimmed, attachments: attachments.isEmpty ? nil : attachments
+        ))
         if conversation.title == Conversation.untitled {
-            conversation.title = String(trimmed.prefix(60))
+            conversation.title = trimmed.isEmpty ? "Immagine" : String(trimmed.prefix(60))
         }
+        conversation.updatedAt = Date()
+        store.upsert(conversation)
+        await generateReply(for: id)
+    }
+
+    /// Scarta l'ultima risposta e ne chiede una nuova.
+    func regenerate(_ id: UUID) async {
+        guard !sending.contains(id), var conversation = store.conversation(id) else { return }
+        while conversation.messages.last?.role == .assistant { conversation.messages.removeLast() }
         conversation.updatedAt = Date()
         store.upsert(conversation)
         await generateReply(for: id)

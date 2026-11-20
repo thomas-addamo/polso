@@ -21,6 +21,7 @@ struct PolsoApp: App {
                 .environment(store)
                 .environment(settings)
                 .environment(chat)
+                .tint(Theme.accent)
                 .task { await settings.refreshModels() }
         }
     }

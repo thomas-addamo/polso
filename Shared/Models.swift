@@ -35,6 +35,15 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
     var usage: TokenUsage? = nil
     /// Costo stimato in dollari della richiesta che ha prodotto la risposta.
     var costUSD: Double? = nil
+    /// Immagini allegate dall'utente (file salvati in ImageStore).
+    var attachments: [Attachment]? = nil
+
+    var hasAttachments: Bool { !(attachments ?? []).isEmpty }
+}
+
+struct Attachment: Codable, Hashable, Sendable, Identifiable {
+    var id = UUID()
+    var mediaType = "image/jpeg"
 }
 
 struct TokenUsage: Codable, Hashable, Sendable {
@@ -111,7 +120,11 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     var updatedAt = Date()
     var messages: [ChatMessage] = []
 
-    var preview: String { messages.last?.text ?? "Nessun messaggio" }
+    var preview: String {
+        guard let last = messages.last else { return "Nessun messaggio" }
+        if last.text.isEmpty && last.hasAttachments { return "Immagine" }
+        return last.text
+    }
 }
 
 struct ModelInfo: Codable, Identifiable, Hashable, Sendable {
