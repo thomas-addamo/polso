@@ -29,19 +29,19 @@ struct WatchChatView: View {
                     modelChip(conversation)
 
                     ForEach(conversation.messages) { message in
-                        WatchMessageView(message: message).id(message.id)
+                        WatchMessageView(message: message, symbol: conversation.assistantSymbol).id(message.id)
                     }
 
                     if chat.isSending(conversationID) {
                         let partial = chat.streamingText[conversationID] ?? ""
                         if partial.isEmpty {
                             HStack(spacing: 6) {
-                                AssistantAvatar(size: 18)
+                                AssistantAvatar(size: 18, symbol: conversation.assistantSymbol)
                                 WatchTypingIndicator()
                                 Spacer()
                             }
                         } else {
-                            WatchMessageView(message: ChatMessage(role: .assistant, text: partial))
+                            WatchMessageView(message: ChatMessage(role: .assistant, text: partial), symbol: conversation.assistantSymbol)
                         }
                     }
 
@@ -98,7 +98,7 @@ struct WatchChatView: View {
 
     /// Apre dettatura, Scribble e tastiera di watchOS.
     private var replyButton: some View {
-        TextFieldLink(prompt: Text("Scrivi a Claude")) {
+        TextFieldLink(prompt: Text("Scrivi a \(conversation?.assistantName ?? "Claude")")) {
             HStack(spacing: 6) {
                 Image(systemName: "mic.fill")
                 Text("Rispondi")
@@ -121,6 +121,7 @@ struct WatchChatView: View {
 
 private struct WatchMessageView: View {
     let message: ChatMessage
+    var symbol = "sparkle"
 
     var body: some View {
         switch message.role {
@@ -151,8 +152,8 @@ private struct WatchMessageView: View {
 
         case .assistant:
             VStack(alignment: .leading, spacing: 5) {
-                AssistantAvatar(size: 18)
-                MarkdownText(message.text)
+                AssistantAvatar(size: 18, symbol: symbol)
+                MarkdownText(MarkdownText.compact(message.text))
                     .font(.footnote)
                     .opacity(message.isRefusal ? 0.6 : 1)
             }
@@ -182,7 +183,7 @@ private struct WatchTypingIndicator: View {
                 }
             }
         }
-        .accessibilityLabel("Claude sta scrivendo")
+        .accessibilityLabel("Sta scrivendo")
     }
 }
 

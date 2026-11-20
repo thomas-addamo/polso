@@ -38,13 +38,14 @@ enum Theme {
 /// Avatar dell'assistente: scintilla bianca su cerchio a gradiente.
 struct AssistantAvatar: View {
     var size: CGFloat = 28
+    var symbol = "sparkle"
 
     var body: some View {
         Circle()
             .fill(Theme.gradient)
             .frame(width: size, height: size)
             .overlay(
-                Image(systemName: "sparkle")
+                Image(systemName: symbol)
                     .font(.system(size: size * 0.48, weight: .bold))
                     .foregroundStyle(.white)
             )

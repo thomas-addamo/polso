@@ -40,11 +40,12 @@ struct UserMessageView: View {
 struct AssistantMessageView: View {
     let message: ChatMessage
     let modelName: String?
+    var symbol = "sparkle"
     let onRegenerate: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            AssistantAvatar(size: 28)
+            AssistantAvatar(size: 28, symbol: symbol)
             VStack(alignment: .leading, spacing: 8) {
                 MarkdownBlocksView(text: message.text)
                     .opacity(message.isRefusal ? 0.6 : 1)
@@ -74,15 +75,18 @@ struct AssistantMessageView: View {
 
 struct StreamingMessageView: View {
     let text: String
+    var assistantName = "Claude"
+    var symbol = "sparkle"
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            AssistantAvatar(size: 28)
+            AssistantAvatar(size: 28, symbol: symbol)
                 .phaseAnimator([false, true]) { avatar, pulsing in
                     avatar.scaleEffect(pulsing ? 1.08 : 1)
                 } animation: { _ in .easeInOut(duration: 0.8) }
             if text.isEmpty {
                 TypingIndicator()
+                    .accessibilityLabel("\(assistantName) sta scrivendo")
             } else {
                 MarkdownBlocksView(text: text)
             }
@@ -107,7 +111,6 @@ struct TypingIndicator: View {
             }
             .padding(.vertical, 10)
         }
-        .accessibilityLabel("Claude sta scrivendo")
     }
 }
 
@@ -254,6 +257,7 @@ struct EmptyChatView: View {
 // MARK: - Barra di scrittura
 
 struct ChatInputBar: View {
+    var assistantName = "Claude"
     @Binding var draft: String
     @Binding var pending: [Attachment]
     var focus: FocusState<Bool>.Binding
@@ -354,7 +358,7 @@ struct ChatInputBar: View {
     // MARK: Parti comuni
 
     private var textField: some View {
-        TextField("Scrivi a Claude…", text: $draft, axis: .vertical)
+        TextField("Scrivi a \(assistantName)…", text: $draft, axis: .vertical)
             .lineLimit(1...6)
             .focused(focus)
             .submitLabel(.return)

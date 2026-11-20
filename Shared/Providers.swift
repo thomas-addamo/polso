@@ -81,3 +81,40 @@ extension ModelInfo {
     /// Identificativo univoco anche tra provider diversi.
     var key: String { "\(provider.rawValue)|\(id)" }
 }
+
+/// Riconosce a quale assistente ci si rivolge, partendo dal modello della chat.
+enum AssistantName {
+    /// Prefissi riconosciuti nell'ID del modello (anche nella forma "azienda/modello" di OpenRouter).
+    private static let families: [(prefix: String, name: String)] = [
+        ("claude", "Claude"), ("gpt-oss", "GPT-OSS"), ("gpt", "GPT"), ("chatgpt", "ChatGPT"),
+        ("o1", "GPT"), ("o3", "GPT"), ("o4", "GPT"), ("llama", "Llama"), ("meta-llama", "Llama"),
+        ("qwen", "Qwen"), ("qwq", "Qwen"), ("gemma", "Gemma"), ("gemini", "Gemini"),
+        ("deepseek", "DeepSeek"), ("kimi", "Kimi"), ("moonshot", "Kimi"), ("mixtral", "Mixtral"),
+        ("codestral", "Codestral"), ("magistral", "Magistral"), ("pixtral", "Pixtral"),
+        ("devstral", "Devstral"), ("ministral", "Mistral"), ("mistral", "Mistral"),
+        ("open-mistral", "Mistral"), ("grok", "Grok"), ("compound", "Compound"), ("allam", "ALLaM"),
+        ("command", "Command"), ("phi", "Phi"), ("nemotron", "Nemotron"), ("glm", "GLM"),
+    ]
+
+    static func name(model: String, provider: ProviderID) -> String {
+        if provider == .anthropic { return "Claude" }
+        let id = model.lowercased()
+        let last = id.split(separator: "/").last.map(String.init) ?? id
+        for candidate in [last, id] {
+            for family in families where candidate.hasPrefix(family.prefix) {
+                return family.name
+            }
+        }
+        for family in families where id.contains(family.prefix) && family.prefix.count > 3 {
+            return family.name
+        }
+        return provider.name
+    }
+}
+
+extension Conversation {
+    /// Nome dell'assistente di questa chat (es. "Claude", "Llama", "GPT").
+    var assistantName: String { AssistantName.name(model: model, provider: providerID) }
+    /// Simbolo dell'avatar: la scintilla per Claude, l'icona del provider per gli altri.
+    var assistantSymbol: String { providerID == .anthropic ? "sparkle" : providerID.icon }
+}

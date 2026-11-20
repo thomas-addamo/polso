@@ -67,7 +67,8 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 22) {
-                    if settings.apiKey(for: conversation.providerID) == nil {
+                    let missingKey = settings.apiKey(for: conversation.providerID) == nil
+                    if missingKey && conversation.messages.isEmpty {
                         MissingKeyCard(provider: conversation.providerID, onSettings: onSettings)
                             .padding(.top, 20)
                     } else if conversation.messages.isEmpty && !chat.isSending(conversationID) {
@@ -88,7 +89,11 @@ struct ChatView: View {
                     }
 
                     if chat.isSending(conversationID) {
-                        StreamingMessageView(text: chat.streamingText[conversationID] ?? "")
+                        StreamingMessageView(
+                            text: chat.streamingText[conversationID] ?? "",
+                            assistantName: conversation.assistantName,
+                            symbol: conversation.assistantSymbol
+                        )
                             .transition(.opacity)
                     }
 
@@ -99,6 +104,10 @@ struct ChatView: View {
                                 ? { Task { await chat.generateReply(for: conversationID) } }
                                 : nil
                         )
+                    }
+
+                    if missingKey && !conversation.messages.isEmpty {
+                        MissingKeyCard(provider: conversation.providerID, onSettings: onSettings)
                     }
 
                     Color.clear.frame(height: 1).id("bottom")
@@ -118,6 +127,7 @@ struct ChatView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 ChatInputBar(
+                    assistantName: conversation.assistantName,
                     draft: $draft,
                     pending: $pending,
                     focus: $inputFocused,
@@ -140,6 +150,7 @@ struct ChatView: View {
             AssistantMessageView(
                 message: message,
                 modelName: message.model.map(settings.displayName(for:)),
+                symbol: conversation.assistantSymbol,
                 onRegenerate: isLast && !chat.isSending(conversationID)
                     ? { Task { await chat.regenerate(conversationID) } }
                     : nil
