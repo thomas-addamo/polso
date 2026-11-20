@@ -8,10 +8,20 @@ final class ConversationStore {
     private struct Persisted: Codable {
         var conversations: [Conversation]
         var deleted: Set<UUID>
+        var spending: [UUID: SpendEntry]?
     }
 
     private(set) var conversations: [Conversation] = []
     private var deleted: Set<UUID> = []
+    /// Registro delle spese per messaggio: resta anche se la chat viene eliminata.
+    private(set) var spending: [UUID: SpendEntry] = [:]
+
+    /// Spesa stimata del mese corrente (somma di iPhone e Watch, grazie alla sincronizzazione).
+    var spendingThisMonth: Double {
+        spending.values
+            .filter { Calendar.current.isDate($0.date, equalTo: Date(), toGranularity: .month) }
+            .reduce(0) { $0 + $1.cost }
+    }
 
     /// Chiamati per le modifiche locali, per inviarle all'altro dispositivo.
     @ObservationIgnored var onUpsert: ((Conversation) -> Void)?
@@ -28,6 +38,8 @@ final class ConversationStore {
            let state = try? JSONDecoder().decode(Persisted.self, from: data) {
             conversations = state.conversations.sorted { $0.updatedAt > $1.updatedAt }
             deleted = state.deleted
+            spending = state.spending ?? [:]
+            conversations.forEach(recordSpending)
         }
     }
 
@@ -71,16 +83,27 @@ final class ConversationStore {
     }
 
     func exportState() throws -> Data {
-        try JSONEncoder().encode(Persisted(conversations: conversations, deleted: deleted))
+        try JSONEncoder().encode(Persisted(conversations: conversations, deleted: deleted, spending: spending))
     }
 
     func importState(_ data: Data) {
         guard let state = try? JSONDecoder().decode(Persisted.self, from: data) else { return }
+        spending.merge(state.spending ?? [:]) { local, _ in local }
         state.deleted.forEach(applyRemoteDelete)
         state.conversations.forEach(mergeRemote)
+        save()
+    }
+
+    private func recordSpending(_ conversation: Conversation) {
+        for message in conversation.messages where message.role == .assistant {
+            if let cost = message.costUSD, spending[message.id] == nil {
+                spending[message.id] = SpendEntry(date: message.createdAt, cost: cost)
+            }
+        }
     }
 
     private func apply(_ conversation: Conversation) {
+        recordSpending(conversation)
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
             conversations[index] = conversation
         } else {
@@ -120,6 +143,13 @@ final class SettingsStore {
 
     init() {
         apiKey = Keychain.get(Self.keyAccount)
+        // Migrazione una tantum: chi aveva ancora Opus come predefinito passa a Sonnet (più economico).
+        if !defaults.bool(forKey: "migratedDefaultToSonnet") {
+            if defaults.string(forKey: "defaultModel") == "claude-opus-5-5" {
+                defaults.removeObject(forKey: "defaultModel")
+            }
+            defaults.set(true, forKey: "migratedDefaultToSonnet")
+        }
         defaultModel = defaults.string(forKey: "defaultModel") ?? AppConstants.defaultModel
         effort = Effort(rawValue: defaults.string(forKey: "effort") ?? "") ?? .low
         if let data = defaults.data(forKey: "models"),
@@ -252,13 +282,16 @@ final class ChatService {
             if text.isEmpty { text = refused ? "La richiesta è stata rifiutata." : "(risposta vuota)" }
             if result.stopReason == "max_tokens" { text += "\n\n_(risposta troncata)_" }
 
+            let servedModel = result.model ?? conversation.model
             var latest = store.conversation(id) ?? conversation
             latest.messages.append(ChatMessage(
                 role: .assistant,
                 text: text,
-                model: result.model ?? conversation.model,
+                model: servedModel,
                 rawContent: refused ? nil : result.content,
-                isRefusal: refused
+                isRefusal: refused,
+                usage: result.usage,
+                costUSD: Pricing.cost(model: servedModel, usage: result.usage)
             ))
             latest.updatedAt = Date()
             store.upsert(latest)

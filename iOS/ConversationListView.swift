@@ -40,6 +40,14 @@ struct ConversationListView: View {
                 .onDelete { offsets in
                     offsets.map { store.conversations[$0].id }.forEach(store.delete)
                 }
+
+                if settings.hasAPIKey {
+                    Section {
+                        LabeledContent("Spesa di questo mese", value: "≈ \(Pricing.format(store.spendingThisMonth))")
+                    } footer: {
+                        Text("Stima calcolata dai token di ogni risposta, inclusi quelli inviati dal Watch. L'importo esatto è nella Console di Anthropic.")
+                    }
+                }
             }
             .overlay {
                 if store.conversations.isEmpty && settings.hasAPIKey {

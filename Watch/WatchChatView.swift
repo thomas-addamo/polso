@@ -85,15 +85,22 @@ private struct WatchBubble: View {
     let message: ChatMessage
 
     var body: some View {
-        MarkdownText(message.text)
-            .font(.footnote)
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
-            .background(
-                message.role == .user ? Color.accentColor.opacity(0.35) : Color.gray.opacity(0.2),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .opacity(message.isRefusal ? 0.6 : 1)
+        VStack(alignment: .leading, spacing: 2) {
+            MarkdownText(message.text)
+                .font(.footnote)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+                .background(
+                    message.role == .user ? Color.accentColor.opacity(0.35) : Color.gray.opacity(0.2),
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
+                .opacity(message.isRefusal ? 0.6 : 1)
+            if let cost = message.costUSD {
+                Text("≈ \(Pricing.format(cost))")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .padding(.leading, 4)
+            }
+        }
     }
 }
 

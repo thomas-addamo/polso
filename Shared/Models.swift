@@ -1,9 +1,10 @@
 import Foundation
 
 enum AppConstants {
-    /// Modello predefinito per le nuove chat.
-    static let defaultModel = "claude-opus-5-5"
-    static let maxTokens = 16_000
+    /// Modello predefinito per le nuove chat: Sonnet 5.5, buon equilibrio tra qualità e costo.
+    static let defaultModel = "claude-sonnet-5-5"
+    /// Tetto alla lunghezza di ogni risposta (include il ragionamento): tiene basso il costo massimo.
+    static let maxTokens = 4_096
 
     /// Il prompt di sistema deve restare identico su iPhone e Watch e nel tempo:
     /// cambiarlo a metà conversazione invaliderebbe i thinking block già salvati.
@@ -30,6 +31,74 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
     var rawContent: [JSONValue]? = nil
     /// La risposta è stata rifiutata dai filtri di sicurezza: non viene rimandata all'API.
     var isRefusal = false
+    /// Token usati per produrre la risposta, come riportati dall'API.
+    var usage: TokenUsage? = nil
+    /// Costo stimato in dollari della richiesta che ha prodotto la risposta.
+    var costUSD: Double? = nil
+}
+
+struct TokenUsage: Codable, Hashable, Sendable {
+    var inputTokens = 0
+    var outputTokens = 0
+    var cacheReadTokens = 0
+    var cacheWriteTokens = 0
+
+    var totalInput: Int { inputTokens + cacheReadTokens + cacheWriteTokens }
+}
+
+struct SpendEntry: Codable, Hashable, Sendable {
+    var date: Date
+    var cost: Double
+}
+
+/// Listino Anthropic in dollari per milione di token (aggiornato a novembre 2026).
+/// Serve solo per una stima: l'importo reale è nella Console di Anthropic.
+enum Pricing {
+    struct Rate { var input: Double; var output: Double; var cacheRead: Double }
+
+    static let rates: [String: Rate] = [
+        "claude-haiku-5-5": Rate(input: 0.10, output: 0.50, cacheRead: 0.01),
+        "claude-sonnet-5-5": Rate(input: 2, output: 10, cacheRead: 0.10),
+        "claude-opus-5-5": Rate(input: 4, output: 20, cacheRead: 0.20),
+        "claude-fable-5-2": Rate(input: 8, output: 40, cacheRead: 0.20),
+        "claude-fable-5-1": Rate(input: 10, output: 50, cacheRead: 0.25),
+        "claude-fable-5": Rate(input: 10, output: 50, cacheRead: 1.00),
+        "claude-opus-5": Rate(input: 5, output: 25, cacheRead: 0.50),
+        "claude-sonnet-5": Rate(input: 2, output: 10, cacheRead: 0.20),
+        "claude-opus-4-8": Rate(input: 5, output: 25, cacheRead: 0.50),
+        "claude-opus-4-7": Rate(input: 5, output: 25, cacheRead: 0.50),
+        "claude-opus-4-6": Rate(input: 5, output: 25, cacheRead: 0.50),
+        "claude-sonnet-4-6": Rate(input: 3, output: 15, cacheRead: 0.30),
+        "claude-haiku-4-5": Rate(input: 1, output: 5, cacheRead: 0.10),
+    ]
+
+    static func rate(for model: String) -> Rate? {
+        if let exact = rates[model] { return exact }
+        // ID con suffisso (es. data): prende la chiave più lunga che fa da prefisso.
+        return rates.keys
+            .filter { model.hasPrefix($0 + "-") }
+            .max { $0.count < $1.count }
+            .flatMap { rates[$0] }
+    }
+
+    static func cost(model: String, usage: TokenUsage) -> Double? {
+        guard var rate = rate(for: model) else { return nil }
+        // Haiku 5.5 ha un prezzo più alto oltre i 100K token di prompt.
+        if model.hasPrefix("claude-haiku-5-5"), usage.totalInput > 100_000 {
+            rate = Rate(input: 0.50, output: 2.50, cacheRead: 0.05)
+        }
+        let perToken = 1_000_000.0
+        return (Double(usage.inputTokens) * rate.input
+            + Double(usage.cacheWriteTokens) * rate.input * 1.25
+            + Double(usage.cacheReadTokens) * rate.cacheRead
+            + Double(usage.outputTokens) * rate.output) / perToken
+    }
+
+    static func format(_ usd: Double) -> String {
+        if usd == 0 { return "$0" }
+        if usd < 0.01 { return String(format: "$%.4f", usd) }
+        return String(format: "$%.2f", usd)
+    }
 }
 
 struct Conversation: Codable, Identifiable, Hashable, Sendable {

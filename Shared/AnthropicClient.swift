@@ -22,6 +22,7 @@ struct StreamResult: Sendable {
     var text: String
     var stopReason: String?
     var model: String?
+    var usage: TokenUsage
 }
 
 /// Client HTTP minimale per l'API Messages di Anthropic.
@@ -133,6 +134,16 @@ struct AnthropicClient: Sendable {
         var stopReason: String?
         var servedModel: String?
         var fullText = ""
+        var usage = TokenUsage()
+
+        /// Aggiorna i contatori con i campi presenti (i valori dell'API sono cumulativi).
+        func readUsage(_ json: JSONValue?) {
+            guard let json else { return }
+            if let v = json["input_tokens"]?.int { usage.inputTokens = v }
+            if let v = json["output_tokens"]?.int { usage.outputTokens = v }
+            if let v = json["cache_read_input_tokens"]?.int { usage.cacheReadTokens = v }
+            if let v = json["cache_creation_input_tokens"]?.int { usage.cacheWriteTokens = v }
+        }
 
         for try await line in bytes.lines {
             guard line.hasPrefix("data:") else { continue }
@@ -142,6 +153,7 @@ struct AnthropicClient: Sendable {
             switch event["type"]?.string {
             case "message_start":
                 servedModel = event["message"]?["model"]?.string
+                readUsage(event["message"]?["usage"])
 
             case "content_block_start":
                 if let i = event["index"]?.int, let block = event["content_block"]?.object {
@@ -179,6 +191,7 @@ struct AnthropicClient: Sendable {
 
             case "message_delta":
                 if let reason = event["delta"]?["stop_reason"]?.string { stopReason = reason }
+                readUsage(event["usage"])
 
             case "error":
                 throw AnthropicAPIError(
@@ -193,7 +206,7 @@ struct AnthropicClient: Sendable {
         }
 
         let content = blocks.keys.sorted().compactMap { blocks[$0].map(JSONValue.object) }
-        return StreamResult(content: content, text: fullText, stopReason: stopReason, model: servedModel)
+        return StreamResult(content: content, text: fullText, stopReason: stopReason, model: servedModel, usage: usage)
     }
 }
 

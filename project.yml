@@ -26,6 +26,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thomasaddamo.polso
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - target: PolsoWatch
@@ -43,3 +44,4 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thomasaddamo.polso.watchkitapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

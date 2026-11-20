@@ -19,16 +19,21 @@ struct WatchConversationListView: View {
                         text: "Nessuna chat. Creane una sull'iPhone."
                     )
                 } else {
-                    List(store.conversations) { conversation in
-                        NavigationLink(value: conversation.id) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(conversation.title).font(.headline).lineLimit(2)
-                                Text(conversation.preview)
-                                    .font(.footnote).foregroundStyle(.secondary).lineLimit(2)
-                                Text(conversation.updatedAt.shortRelative)
-                                    .font(.caption2).foregroundStyle(.tertiary)
+                    List {
+                        ForEach(store.conversations) { conversation in
+                            NavigationLink(value: conversation.id) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(conversation.title).font(.headline).lineLimit(2)
+                                    Text(conversation.preview)
+                                        .font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                                    Text(conversation.updatedAt.shortRelative)
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                }
                             }
                         }
+                        Text("Questo mese ≈ \(Pricing.format(store.spendingThisMonth))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
                     }
                 }
             }

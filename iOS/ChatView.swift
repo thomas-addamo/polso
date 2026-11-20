@@ -128,15 +128,22 @@ private struct MessageBubble: View {
     var body: some View {
         HStack {
             if message.role == .user { Spacer(minLength: 40) }
-            MarkdownText(message.text)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .foregroundStyle(message.role == .user ? Color.white : Color.primary)
-                .background(
-                    message.role == .user ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
-                    in: RoundedRectangle(cornerRadius: 18)
-                )
-                .opacity(message.isRefusal ? 0.6 : 1)
+            VStack(alignment: .leading, spacing: 4) {
+                MarkdownText(message.text)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .foregroundStyle(message.role == .user ? Color.white : Color.primary)
+                    .background(
+                        message.role == .user ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
+                        in: RoundedRectangle(cornerRadius: 18)
+                    )
+                    .opacity(message.isRefusal ? 0.6 : 1)
+                if let cost = message.costUSD, let usage = message.usage {
+                    Text("≈ \(Pricing.format(cost)) · \(usage.totalInput + usage.outputTokens) token")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .padding(.leading, 6)
+                }
+            }
             if message.role == .assistant { Spacer(minLength: 40) }
         }
     }
