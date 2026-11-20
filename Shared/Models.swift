@@ -119,6 +119,16 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     var model: String
     /// Servizio che risponde in questa chat (nil = Anthropic, per le chat create prima del supporto multi-provider).
     var provider: ProviderID? = nil
+    /// Chat fissata in cima all'elenco.
+    var pinned: Bool? = nil
+
+    var isPinned: Bool { pinned ?? false }
+
+    /// Testo dell'intera conversazione, per condividerla.
+    var transcript: String {
+        messages.map { "\($0.role == .user ? "Tu" : "Assistente"): \($0.text)" }
+            .joined(separator: "\n\n")
+    }
     var createdAt = Date()
     var updatedAt = Date()
     var messages: [ChatMessage] = []

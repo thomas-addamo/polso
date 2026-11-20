@@ -55,7 +55,23 @@ final class ConversationStore {
 
     /// Chat con almeno un messaggio (quelle vuote non compaiono negli elenchi).
     var visibleConversations: [Conversation] {
-        conversations.filter { !$0.messages.isEmpty }
+        let visible = conversations.filter { !$0.messages.isEmpty }
+        return visible.filter(\.isPinned) + visible.filter { !$0.isPinned }
+    }
+
+    func rename(_ id: UUID, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var conversation = conversation(id) else { return }
+        conversation.title = trimmed
+        conversation.updatedAt = Date()
+        upsert(conversation)
+    }
+
+    func togglePin(_ id: UUID) {
+        guard var conversation = conversation(id) else { return }
+        conversation.pinned = !conversation.isPinned
+        conversation.updatedAt = Date()
+        upsert(conversation)
     }
 
     func upsert(_ conversation: Conversation) {

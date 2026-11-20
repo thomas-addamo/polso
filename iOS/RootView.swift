@@ -157,6 +157,9 @@ struct SidebarView: View {
     @State private var searching = false
     @State private var query = ""
     @FocusState private var searchFocused: Bool
+    @State private var renaming: Conversation?
+    @State private var newTitle = ""
+    @State private var deleting: Conversation?
 
     private var chats: [Conversation] {
         let list = store.visibleConversations
@@ -189,7 +192,13 @@ struct SidebarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    sectionTitle("Recenti")
+                    let pinned = chats.filter(\.isPinned)
+                    if !pinned.isEmpty {
+                        sectionTitle("Fissate")
+                        ForEach(pinned) { chatRow($0) }
+                    }
+
+                    sectionTitle("Recenti").padding(.top, pinned.isEmpty ? 0 : 10)
 
                     if chats.isEmpty {
                         Text(query.isEmpty ? "Le tue chat compariranno qui." : "Nessun risultato.")
@@ -199,7 +208,7 @@ struct SidebarView: View {
                             .padding(.vertical, 8)
                     }
 
-                    ForEach(chats) { conversation in
+                    ForEach(chats.filter { !$0.isPinned }) { conversation in
                         chatRow(conversation)
                     }
 
@@ -217,6 +226,31 @@ struct SidebarView: View {
         .padding(.top, 60)
         .overlay(alignment: .bottom) { bottomBar }
         .animation(.snappy, value: searching)
+        .animation(.snappy, value: store.visibleConversations.map(\.id))
+        .alert("Rinomina chat", isPresented: Binding(
+            get: { renaming != nil },
+            set: { if !$0 { renaming = nil } }
+        )) {
+            TextField("Titolo", text: $newTitle)
+            Button("Annulla", role: .cancel) { renaming = nil }
+            Button("Salva") {
+                if let renaming { store.rename(renaming.id, to: newTitle) }
+                renaming = nil
+            }
+        }
+        .confirmationDialog(
+            "Eliminare questa chat?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible,
+            presenting: deleting
+        ) { conversation in
+            Button("Elimina chat", role: .destructive) {
+                withAnimation { store.delete(conversation.id) }
+                deleting = nil
+            }
+        } message: { conversation in
+            Text("«\(conversation.title)» verrà eliminata anche dall'Apple Watch. L'operazione non si può annullare.")
+        }
     }
 
     private var header: some View {
@@ -252,32 +286,56 @@ struct SidebarView: View {
 
     private func chatRow(_ conversation: Conversation) -> some View {
         let selected = conversation.id == selectedID
-        return Button { onSelect(conversation.id) } label: {
-            HStack(spacing: 14) {
-                Image(systemName: conversation.providerID == .anthropic ? "bubble.left" : conversation.providerID.icon)
-                    .font(.system(size: 17))
-                    .foregroundStyle(selected ? Theme.accent : .secondary)
-                    .frame(width: 24)
-                Text(conversation.title)
-                    .font(.body)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        return HStack(spacing: 0) {
+            Button { onSelect(conversation.id) } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: conversation.providerID == .anthropic ? "bubble.left" : conversation.providerID.icon)
+                        .font(.system(size: 17))
+                        .foregroundStyle(selected ? Theme.accent : .secondary)
+                        .frame(width: 24)
+                    Text(conversation.title)
+                        .font(.body)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                selected ? Color.primary.opacity(0.08) : .clear,
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            Menu {
+                Button("Rinomina", systemImage: "pencil") {
+                    newTitle = conversation.title
+                    renaming = conversation
+                }
+                Button(conversation.isPinned ? "Rimuovi dalle fissate" : "Fissa in alto",
+                       systemImage: conversation.isPinned ? "pin.slash" : "pin") {
+                    store.togglePin(conversation.id)
+                }
+                ShareLink(item: conversation.transcript, subject: Text(conversation.title)) {
+                    Label("Condividi", systemImage: "square.and.arrow.up")
+                }
+                Divider()
+                Button("Elimina", systemImage: "trash", role: .destructive) {
+                    deleting = conversation
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .tint(.secondary)
+            .accessibilityLabel("Opzioni per \(conversation.title)")
         }
-        .buttonStyle(.plain)
+        .padding(.trailing, 2)
+        .background(
+            selected ? Color.primary.opacity(0.08) : .clear,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
         .padding(.horizontal, 8)
-        .contextMenu {
-            Button("Elimina chat", systemImage: "trash", role: .destructive) {
-                withAnimation { store.delete(conversation.id) }
-            }
-        }
     }
 
     private func menuRow(icon: String, title: String, trailing: String? = nil, action: @escaping () -> Void) -> some View {
