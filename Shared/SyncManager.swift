@@ -85,9 +85,12 @@ final class SyncManager: NSObject {
     #if os(iOS)
     func pushSettings() {
         guard canSend, let settings else { return }
+        var keys: [String: String] = [:]
+        for (provider, key) in settings.apiKeys { keys[provider.rawValue] = key }
         try? session?.updateApplicationContext([
-            "apiKey": settings.apiKey ?? "",
+            "apiKeys": keys,
             "defaultModel": settings.defaultModel,
+            "defaultProvider": settings.defaultProvider.rawValue,
             "effort": settings.effort.rawValue,
         ])
     }
@@ -129,9 +132,15 @@ final class SyncManager: NSObject {
     }
 
     fileprivate func applySettings(_ context: [String: Any]) {
+        var keys = context["apiKeys"] as? [String: String] ?? [:]
+        // Formato delle versioni precedenti: solo la chiave Anthropic.
+        if keys.isEmpty, let legacy = context["apiKey"] as? String, !legacy.isEmpty {
+            keys[ProviderID.anthropic.rawValue] = legacy
+        }
         settings?.applyRemote(
-            apiKey: context["apiKey"] as? String,
+            keys: keys,
             defaultModel: context["defaultModel"] as? String,
+            defaultProvider: context["defaultProvider"] as? String,
             effort: context["effort"] as? String
         )
         Task { await settings?.refreshModels() }
@@ -184,11 +193,16 @@ extension SyncManager: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        let apiKey = applicationContext["apiKey"] as? String
+        let keys = applicationContext["apiKeys"] as? [String: String]
+        let legacyKey = applicationContext["apiKey"] as? String
         let model = applicationContext["defaultModel"] as? String
+        let provider = applicationContext["defaultProvider"] as? String
         let effort = applicationContext["effort"] as? String
         Task { @MainActor in
-            self.applySettings(["apiKey": apiKey as Any, "defaultModel": model as Any, "effort": effort as Any])
+            self.applySettings([
+                "apiKeys": keys as Any, "apiKey": legacyKey as Any, "defaultModel": model as Any,
+                "defaultProvider": provider as Any, "effort": effort as Any,
+            ])
         }
     }
 }

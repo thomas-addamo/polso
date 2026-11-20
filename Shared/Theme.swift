@@ -20,6 +20,10 @@ enum Theme {
         light: .white,
         dark: UIColor(white: 1, alpha: 0.07)
     )
+    static let sidebarBackground = adaptive(
+        light: UIColor(red: 0.94, green: 0.915, blue: 0.885, alpha: 1),
+        dark: UIColor(red: 0.045, green: 0.04, blue: 0.038, alpha: 1)
+    )
     static let codeBackground = adaptive(
         light: UIColor(red: 0.95, green: 0.925, blue: 0.895, alpha: 1),
         dark: UIColor(white: 1, alpha: 0.055)

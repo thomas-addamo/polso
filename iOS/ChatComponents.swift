@@ -159,6 +159,34 @@ struct ErrorCard: View {
     }
 }
 
+// MARK: - Chiave mancante
+
+struct MissingKeyCard: View {
+    let provider: ProviderID
+    let onSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "key.fill")
+                .font(.title2)
+                .foregroundStyle(.white)
+                .frame(width: 60, height: 60)
+                .background(Theme.gradient, in: Circle())
+            Text("Collega \(provider.name)")
+                .font(.title3.weight(.bold))
+            Text("Per usare questa chat serve una chiave API di \(provider.name).")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Aggiungi la chiave", systemImage: "plus", action: onSettings)
+                .modifier(ProminentActionStyle())
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+}
+
 // MARK: - Chat vuota
 
 struct EmptyChatView: View {

@@ -14,7 +14,7 @@ struct WatchConversationListView: View {
                         title: "Configura Polso",
                         text: "Apri l'app sull'iPhone e inserisci la chiave API."
                     )
-                } else if store.conversations.isEmpty {
+                } else if store.visibleConversations.isEmpty {
                     placeholder(
                         icon: "bubble.left.and.bubble.right",
                         title: "Nessuna chat",
@@ -22,7 +22,7 @@ struct WatchConversationListView: View {
                     )
                 } else {
                     List {
-                        ForEach(store.conversations) { conversation in
+                        ForEach(store.visibleConversations) { conversation in
                             NavigationLink(value: conversation.id) {
                                 row(conversation)
                             }

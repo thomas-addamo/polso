@@ -46,3 +46,18 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thomasaddamo.polso.watchkitapp
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - target: PolsoWatchWidget
+  PolsoWatchWidget:
+    type: app-extension
+    platform: watchOS
+    sources: [WatchWidget]
+    info:
+      path: WatchWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Polso
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thomasaddamo.polso.watchkitapp.widget

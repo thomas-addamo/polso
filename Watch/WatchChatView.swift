@@ -80,8 +80,9 @@ struct WatchChatView: View {
             WatchModelPicker(conversationID: conversationID)
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "sparkle")
+                Image(systemName: conversation.providerID.icon)
                 Text(settings.displayName(for: conversation.model))
+                    .lineLimit(1)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .bold))
             }
@@ -218,19 +219,25 @@ struct WatchModelPicker: View {
             if settings.models.isEmpty {
                 Text(settings.modelsError ?? "Nessun modello caricato.").font(.footnote)
             }
-            ForEach(settings.models) { model in
-                Button {
-                    guard var conversation = store.conversation(conversationID) else { return }
-                    conversation.model = model.id
-                    conversation.updatedAt = Date()
-                    store.upsert(conversation)
-                    dismiss()
-                } label: {
-                    HStack {
-                        Text(settings.displayName(for: model.id))
-                        Spacer()
-                        if store.conversation(conversationID)?.model == model.id {
-                            Image(systemName: "checkmark").foregroundStyle(Theme.accent)
+            ForEach(settings.configuredProviders) { provider in
+                Section(provider.name) {
+                    ForEach(settings.models(for: provider), id: \.key) { model in
+                        Button {
+                            guard var conversation = store.conversation(conversationID) else { return }
+                            conversation.model = model.id
+                            conversation.provider = model.provider
+                            conversation.updatedAt = Date()
+                            store.upsert(conversation)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(settings.displayName(for: model.id))
+                                Spacer()
+                                if let current = store.conversation(conversationID),
+                                   current.model == model.id, current.providerID == model.provider {
+                                    Image(systemName: "checkmark").foregroundStyle(Theme.accent)
+                                }
+                            }
                         }
                     }
                 }

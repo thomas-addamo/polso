@@ -117,6 +117,8 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     var id = UUID()
     var title: String = Conversation.untitled
     var model: String
+    /// Servizio che risponde in questa chat (nil = Anthropic, per le chat create prima del supporto multi-provider).
+    var provider: ProviderID? = nil
     var createdAt = Date()
     var updatedAt = Date()
     var messages: [ChatMessage] = []
@@ -132,6 +134,18 @@ struct ModelInfo: Codable, Identifiable, Hashable, Sendable {
     var id: String
     var displayName: String
     var supportsEffort: Bool
+    var provider: ProviderID = .anthropic
+}
+
+extension ModelInfo {
+    /// Compatibile con l'elenco salvato dalle versioni precedenti (senza provider).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        supportsEffort = try c.decodeIfPresent(Bool.self, forKey: .supportsEffort) ?? false
+        provider = try c.decodeIfPresent(ProviderID.self, forKey: .provider) ?? .anthropic
+    }
 }
 
 enum Effort: String, CaseIterable, Codable, Identifiable, Sendable {

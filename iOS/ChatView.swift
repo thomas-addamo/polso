@@ -3,6 +3,9 @@ import SwiftUI
 
 struct ChatView: View {
     let conversationID: UUID
+    var onMenu: () -> Void = {}
+    var onNewChat: () -> Void = {}
+    var onSettings: () -> Void = {}
 
     @Environment(ConversationStore.self) private var store
     @Environment(SettingsStore.self) private var settings
@@ -32,8 +35,17 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: onMenu) { Image(systemName: "line.3.horizontal") }
+                    .accessibilityLabel("Menu delle chat")
+            }
             if let conversation {
                 ToolbarItem(placement: .principal) { titleMenu(conversation) }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onNewChat) { Image(systemName: "square.and.pencil") }
+                    .accessibilityLabel("Nuova chat")
+                    .disabled(conversation?.messages.isEmpty ?? true)
             }
         }
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 4 - pending.count, matching: .images)
@@ -55,7 +67,10 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 22) {
-                    if conversation.messages.isEmpty && !chat.isSending(conversationID) {
+                    if settings.apiKey(for: conversation.providerID) == nil {
+                        MissingKeyCard(provider: conversation.providerID, onSettings: onSettings)
+                            .padding(.top, 20)
+                    } else if conversation.messages.isEmpty && !chat.isSending(conversationID) {
                         EmptyChatView { suggestion in
                             draft = suggestion.prompt
                             if suggestion.wantsPhoto { showPhotos = true } else { inputFocused = true }
@@ -137,16 +152,26 @@ struct ChatView: View {
     private func titleMenu(_ conversation: Conversation) -> some View {
         Menu {
             Picker("Modello", selection: Binding(
-                get: { conversation.model },
-                set: { newValue in
+                get: { "\(conversation.providerID.rawValue)|\(conversation.model)" },
+                set: { key in
+                    guard let model = settings.models.first(where: { $0.key == key }) else { return }
                     var updated = conversation
-                    updated.model = newValue
-                    updated.updatedAt = Date()
+                    updated.model = model.id
+                    updated.provider = model.provider
+                    if !updated.messages.isEmpty { updated.updatedAt = Date() }
                     store.upsert(updated)
                 }
             )) {
-                ForEach(modelOptions(including: conversation.model)) { model in
-                    Text(model.displayName).tag(model.id)
+                if !settings.models.contains(where: { $0.key == "\(conversation.providerID.rawValue)|\(conversation.model)" }) {
+                    Text(settings.displayName(for: conversation.model))
+                        .tag("\(conversation.providerID.rawValue)|\(conversation.model)")
+                }
+                ForEach(settings.configuredProviders) { provider in
+                    Section(provider.name) {
+                        ForEach(settings.models(for: provider), id: \.key) { model in
+                            Text(settings.displayName(for: model.id)).tag(model.key)
+                        }
+                    }
                 }
             }
         } label: {
@@ -155,6 +180,9 @@ struct ChatView: View {
                     .font(.headline)
                     .lineLimit(1)
                 HStack(spacing: 3) {
+                    if conversation.providerID != .anthropic {
+                        Image(systemName: conversation.providerID.icon).font(.system(size: 9))
+                    }
                     Text(settings.displayName(for: conversation.model))
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .bold))
@@ -167,14 +195,6 @@ struct ChatView: View {
         }
         .tint(.primary)
         .accessibilityLabel("Modello: \(settings.displayName(for: conversation.model))")
-    }
-
-    private func modelOptions(including current: String) -> [ModelInfo] {
-        var list = settings.models
-        if !list.contains(where: { $0.id == current }) {
-            list.insert(ModelInfo(id: current, displayName: current, supportsEffort: false), at: 0)
-        }
-        return list
     }
 
     // MARK: Azioni

@@ -1,10 +1,13 @@
 # Polso
 
-App per **Apple Watch** (con app compagna per iPhone) per chattare con Claude tramite l'API di Anthropic.
+App per **Apple Watch** (con app compagna per iPhone) per chattare con Claude e altri modelli tramite API: Anthropic, Groq, OpenAI, OpenRouter e Mistral.
 
 - **iPhone**: inserisci la chiave API, crea e gestisci le chat, scegli il modello predefinito e l'effort.
 - **Apple Watch**: vedi le chat già esistenti e rispondi a Claude con dettatura, Scribble o tastiera; puoi cambiare il modello di ogni chat.
 - **Modelli**: l'elenco arriva dalla Models API (`GET /v1/models`), quindi mostra i modelli disponibili per la tua chiave. Quello predefinito è `claude-sonnet-5-5`.
+- **Più provider**: collega le chiavi di Anthropic, Groq, OpenAI, OpenRouter o Mistral e scegli il modello per ogni chat.
+- **Menu laterale** in stile app Claude: le chat si aprono scorrendo dal bordo sinistro o con il pulsante ☰.
+- **Complicazione** per il quadrante dell'Apple Watch (rotonda, angolo, in linea, rettangolare).
 - **Immagini**: allega fino a 4 foto per messaggio (libreria o fotocamera); vengono ridimensionate e sincronizzate anche sul Watch.
 - **Design**: Liquid Glass su iOS 26+, risposte con titoli, elenchi, citazioni e blocchi di codice copiabili, tema chiaro e scuro.
 - **Costi sotto controllo**: sotto ogni risposta c'è il costo stimato; l'elenco delle chat mostra la spesa del mese (iPhone + Watch). Le risposte sono limitate a 4.096 token.
@@ -33,6 +36,7 @@ Per eseguirla su un dispositivo reale, scegli il tuo *Team* in *Signing & Capabi
 | `Shared/` | Client HTTP per l'API (streaming SSE), modelli dati, archivio delle chat, impostazioni, sincronizzazione WatchConnectivity |
 | `iOS/` | Interfaccia dell'iPhone: elenco delle chat, chat, impostazioni |
 | `Watch/` | Interfaccia del Watch: elenco delle chat, chat, scelta del modello |
+| `WatchWidget/` | Complicazione per il quadrante (WidgetKit) |
 | `project.yml` | Definizione del progetto per XcodeGen |
 
 ## Come funziona

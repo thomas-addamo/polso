@@ -47,10 +47,15 @@ final class ConversationStore {
         conversations.first { $0.id == id }
     }
 
-    func create(model: String) -> Conversation {
-        let conversation = Conversation(model: model)
+    func create(model: String, provider: ProviderID) -> Conversation {
+        let conversation = Conversation(model: model, provider: provider)
         upsert(conversation)
         return conversation
+    }
+
+    /// Chat con almeno un messaggio (quelle vuote non compaiono negli elenchi).
+    var visibleConversations: [Conversation] {
+        conversations.filter { !$0.messages.isEmpty }
     }
 
     func upsert(_ conversation: Conversation) {
@@ -122,16 +127,18 @@ final class ConversationStore {
 
 @Observable @MainActor
 final class SettingsStore {
-    private static let keyAccount = "anthropic-api-key"
     private let defaults = UserDefaults.standard
 
-    private(set) var apiKey: String?
+    private(set) var apiKeys: [ProviderID: String] = [:]
     private(set) var models: [ModelInfo] = []
     var isLoadingModels = false
     var modelsError: String?
 
     var defaultModel: String {
         didSet { defaults.set(defaultModel, forKey: "defaultModel"); notify() }
+    }
+    var defaultProvider: ProviderID {
+        didSet { defaults.set(defaultProvider.rawValue, forKey: "defaultProvider"); notify() }
     }
     var effort: Effort {
         didSet { defaults.set(effort.rawValue, forKey: "effort"); notify() }
@@ -142,7 +149,6 @@ final class SettingsStore {
     @ObservationIgnored private var suppressNotify = false
 
     init() {
-        apiKey = Keychain.get(Self.keyAccount)
         // Migrazione una tantum: chi aveva ancora Opus come predefinito passa a Sonnet (più economico).
         if !defaults.bool(forKey: "migratedDefaultToSonnet") {
             if defaults.string(forKey: "defaultModel") == "claude-opus-5-5" {
@@ -151,49 +157,114 @@ final class SettingsStore {
             defaults.set(true, forKey: "migratedDefaultToSonnet")
         }
         defaultModel = defaults.string(forKey: "defaultModel") ?? AppConstants.defaultModel
+        defaultProvider = ProviderID(rawValue: defaults.string(forKey: "defaultProvider") ?? "") ?? .anthropic
         effort = Effort(rawValue: defaults.string(forKey: "effort") ?? "") ?? .low
         if let data = defaults.data(forKey: "models"),
            let cached = try? JSONDecoder().decode([ModelInfo].self, from: data) {
             models = cached
         }
+        var keys: [ProviderID: String] = [:]
+        for provider in ProviderID.allCases {
+            if let key = Keychain.get(provider.keychainAccount), !key.isEmpty { keys[provider] = key }
+        }
+        apiKeys = keys
     }
 
-    var hasAPIKey: Bool { !(apiKey ?? "").isEmpty }
+    // MARK: Chiavi
 
-    func setAPIKey(_ key: String?) {
+    /// Chiave Anthropic (compatibilità con il codice precedente).
+    var apiKey: String? { apiKeys[.anthropic] }
+    var hasAPIKey: Bool { !apiKeys.isEmpty }
+    var configuredProviders: [ProviderID] { ProviderID.allCases.filter { apiKeys[$0] != nil } }
+
+    func apiKey(for provider: ProviderID) -> String? { apiKeys[provider] }
+
+    func setAPIKey(_ key: String?, for provider: ProviderID = .anthropic) {
         let trimmed = key?.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = (trimmed?.isEmpty ?? true) ? nil : trimmed
-        Keychain.set(value, for: Self.keyAccount)
-        apiKey = value
+        Keychain.set(value, for: provider.keychainAccount)
+        apiKeys[provider] = value
+        if value == nil {
+            models.removeAll { $0.provider == provider }
+            saveModels()
+            // Se il predefinito era di questo provider, passa al primo provider disponibile.
+            if defaultProvider == provider, let other = models.first {
+                defaultProvider = other.provider
+                defaultModel = other.id
+            }
+        }
         notify()
     }
 
     /// Impostazioni ricevute dall'iPhone (sul Watch).
-    func applyRemote(apiKey: String?, defaultModel: String?, effort: String?) {
+    func applyRemote(keys: [String: String], defaultModel: String?, defaultProvider: String?, effort: String?) {
         suppressNotify = true
         defer { suppressNotify = false }
-        if let apiKey { setAPIKey(apiKey) }
+        for provider in ProviderID.allCases {
+            let remote = keys[provider.rawValue]
+            if remote != apiKeys[provider] { setAPIKey(remote, for: provider) }
+        }
         if let defaultModel, !defaultModel.isEmpty { self.defaultModel = defaultModel }
+        if let defaultProvider, let value = ProviderID(rawValue: defaultProvider) { self.defaultProvider = value }
         if let effort, let value = Effort(rawValue: effort) { self.effort = value }
     }
 
+    // MARK: Modelli
+
+    /// Scarica l'elenco dei modelli da tutti i provider configurati, in parallelo.
     func refreshModels() async {
-        guard let apiKey, !apiKey.isEmpty else { return }
+        let configured = apiKeys
+        guard !configured.isEmpty else { return }
         isLoadingModels = true
         modelsError = nil
         defer { isLoadingModels = false }
-        do {
-            models = try await AnthropicClient(apiKey: apiKey).listModels()
-            defaults.set(try? JSONEncoder().encode(models), forKey: "models")
-        } catch {
-            modelsError = error.localizedDescription
+
+        var fetched: [ProviderID: [ModelInfo]] = [:]
+        var failures: [String] = []
+        await withTaskGroup(of: (ProviderID, Result<[ModelInfo], Error>).self) { group in
+            for (provider, key) in configured {
+                group.addTask {
+                    do {
+                        let list = provider == .anthropic
+                            ? try await AnthropicClient(apiKey: key).listModels()
+                            : try await OpenAICompatibleClient(provider: provider, apiKey: key).listModels()
+                        return (provider, .success(list))
+                    } catch {
+                        return (provider, .failure(error))
+                    }
+                }
+            }
+            for await (provider, result) in group {
+                switch result {
+                case .success(let list): fetched[provider] = list
+                case .failure(let error): failures.append("\(provider.name): \(error.localizedDescription)")
+                }
+            }
         }
+
+        // Mantiene i modelli già noti per i provider che non hanno risposto.
+        var merged: [ModelInfo] = []
+        for provider in ProviderID.allCases where configured[provider] != nil {
+            merged += fetched[provider] ?? models.filter { $0.provider == provider }
+        }
+        models = merged
+        saveModels()
+        modelsError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+    }
+
+    func models(for provider: ProviderID) -> [ModelInfo] {
+        models.filter { $0.provider == provider }
+    }
+
+    private func saveModels() {
+        defaults.set(try? JSONEncoder().encode(models), forKey: "models")
     }
 
     func displayName(for modelID: String) -> String {
         if let name = models.first(where: { $0.id == modelID })?.displayName {
             return name.replacingOccurrences(of: "Claude ", with: "")
         }
+        guard modelID.hasPrefix("claude-") else { return modelID }
         // Senza elenco dei modelli: "claude-sonnet-5-5" diventa "Sonnet 5.5".
         let parts = modelID.replacingOccurrences(of: "claude-", with: "").split(separator: "-")
         guard let family = parts.first else { return modelID }
@@ -201,9 +272,9 @@ final class SettingsStore {
         return ([family.capitalized] + (version.isEmpty ? [] : [version.joined(separator: ".")])).joined(separator: " ")
     }
 
-    /// L'effort si invia solo ai modelli che lo supportano.
+    /// L'effort si invia solo ai modelli Anthropic che lo supportano.
     func effortParameter(for modelID: String) -> Effort? {
-        models.first { $0.id == modelID }?.supportsEffort == true ? effort : nil
+        models.first { $0.provider == .anthropic && $0.id == modelID }?.supportsEffort == true ? effort : nil
     }
 
     private func notify() {
@@ -256,8 +327,9 @@ final class ChatService {
     /// Chiede una risposta per l'ultimo messaggio dell'utente (usato anche per "Riprova").
     func generateReply(for id: UUID) async {
         guard let conversation = store.conversation(id), !sending.contains(id) else { return }
-        guard let apiKey = settings.apiKey, !apiKey.isEmpty else {
-            errors[id] = "Manca la chiave API. Inseriscila nelle impostazioni dell'app sull'iPhone."
+        let provider = conversation.providerID
+        guard let apiKey = settings.apiKey(for: provider), !apiKey.isEmpty else {
+            errors[id] = "Manca la chiave API di \(provider.name). Aggiungila nelle impostazioni dell'iPhone."
             return
         }
 
@@ -277,6 +349,13 @@ final class ChatService {
 
         do {
             let result: StreamResult
+            if provider != .anthropic {
+                result = try await OpenAICompatibleClient(provider: provider, apiKey: apiKey).streamChat(
+                    model: conversation.model,
+                    messages: PayloadBuilder.openAIMessages(for: conversation),
+                    onText: onText
+                )
+            } else {
             do {
                 result = try await client.streamMessage(
                     model: conversation.model,
@@ -295,6 +374,7 @@ final class ChatService {
                     onText: onText
                 )
             }
+            }
 
             let refused = result.stopReason == "refusal"
             var text = result.text
@@ -310,7 +390,7 @@ final class ChatService {
                 rawContent: refused ? nil : result.content,
                 isRefusal: refused,
                 usage: result.usage,
-                costUSD: Pricing.cost(model: servedModel, usage: result.usage)
+                costUSD: provider == .anthropic ? Pricing.cost(model: servedModel, usage: result.usage) : nil
             ))
             latest.updatedAt = Date()
             store.upsert(latest)

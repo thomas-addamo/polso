@@ -17,7 +17,7 @@ struct PolsoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ConversationListView()
+            RootView()
                 .environment(store)
                 .environment(settings)
                 .environment(chat)
