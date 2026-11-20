@@ -8,8 +8,6 @@ struct WatchChatView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ChatService.self) private var chat
 
-    @State private var draft = ""
-
     private var conversation: Conversation? { store.conversation(conversationID) }
 
     var body: some View {
@@ -21,52 +19,54 @@ struct WatchChatView: View {
             }
         }
         .navigationTitle(conversation?.title ?? "")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    WatchModelPicker(conversationID: conversationID)
-                } label: {
-                    Image(systemName: "cpu")
-                }
-                .accessibilityLabel("Modello")
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func content(_ conversation: Conversation) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                LazyVStack(spacing: 10) {
+                    modelChip(conversation)
+
                     ForEach(conversation.messages) { message in
-                        WatchBubble(message: message).id(message.id)
+                        WatchMessageView(message: message).id(message.id)
                     }
 
                     if chat.isSending(conversationID) {
                         let partial = chat.streamingText[conversationID] ?? ""
                         if partial.isEmpty {
-                            ProgressView().frame(maxWidth: .infinity)
+                            HStack(spacing: 6) {
+                                AssistantAvatar(size: 18)
+                                WatchTypingIndicator()
+                                Spacer()
+                            }
                         } else {
-                            WatchBubble(message: ChatMessage(role: .assistant, text: partial))
+                            WatchMessageView(message: ChatMessage(role: .assistant, text: partial))
                         }
                     }
 
                     if let error = chat.errors[conversationID] {
-                        Text(error).font(.footnote).foregroundStyle(.red)
-                        if conversation.messages.last?.role == .user {
-                            Button("Riprova") { Task { await chat.generateReply(for: conversationID) } }
+                        VStack(spacing: 6) {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                            if conversation.messages.last?.role == .user {
+                                Button("Riprova", systemImage: "arrow.clockwise") {
+                                    Task { await chat.generateReply(for: conversationID) }
+                                }
+                                .tint(Theme.accent)
+                            }
                         }
                     }
 
-                    // Il campo di testo di watchOS apre dettatura, Scribble e tastiera.
-                    TextField("Scrivi…", text: $draft)
-                        .disabled(chat.isSending(conversationID))
-                        .onSubmit(send)
-                        .id("input")
+                    replyButton
+                        .padding(.top, 4)
+                        .id("bottom")
                 }
             }
-            .onAppear { proxy.scrollTo("input", anchor: .bottom) }
+            .defaultScrollAnchor(.bottom)
             .onChange(of: conversation.messages.count) { oldCount, newCount in
-                withAnimation { proxy.scrollTo("input", anchor: .bottom) }
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 if newCount > oldCount, conversation.messages.last?.role == .assistant {
                     WKInterfaceDevice.current().play(.notification)
                 }
@@ -74,44 +74,137 @@ struct WatchChatView: View {
         }
     }
 
-    private func send() {
-        let text = draft
-        draft = ""
-        Task { await chat.send(text, to: conversationID) }
+    /// Modello della chat: tocca per cambiarlo.
+    private func modelChip(_ conversation: Conversation) -> some View {
+        NavigationLink {
+            WatchModelPicker(conversationID: conversationID)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "sparkle")
+                Text(settings.displayName(for: conversation.model))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Theme.accentLight)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Theme.accent.opacity(0.2), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Modello: \(settings.displayName(for: conversation.model))")
+    }
+
+    /// Apre dettatura, Scribble e tastiera di watchOS.
+    private var replyButton: some View {
+        TextFieldLink(prompt: Text("Scrivi a Claude")) {
+            HStack(spacing: 6) {
+                Image(systemName: "mic.fill")
+                Text("Rispondi")
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .modifier(WatchGlassCapsule(prominent: true))
+        } onSubmit: { text in
+            Task { await chat.send(text, to: conversationID) }
+        }
+        .buttonStyle(.plain)
+        .disabled(chat.isSending(conversationID))
+        .opacity(chat.isSending(conversationID) ? 0.5 : 1)
     }
 }
 
-private struct WatchBubble: View {
+// MARK: - Messaggio
+
+private struct WatchMessageView: View {
     let message: ChatMessage
 
     var body: some View {
-        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 2) {
-            if let attachments = message.attachments {
-                ForEach(attachments) { attachment in
+        switch message.role {
+        case .user:
+            VStack(alignment: .trailing, spacing: 4) {
+                ForEach(message.attachments ?? []) { attachment in
                     AttachmentImage(attachment: attachment, contentMode: .fit)
-                        .frame(maxHeight: 120)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .frame(maxHeight: 110)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                if !message.text.isEmpty {
+                    MarkdownText(message.text)
+                        .font(.footnote)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            Theme.gradient,
+                            in: UnevenRoundedRectangle(
+                                topLeadingRadius: 16, bottomLeadingRadius: 16,
+                                bottomTrailingRadius: 4, topTrailingRadius: 16, style: .continuous
+                            )
+                        )
                 }
             }
-            if !message.text.isEmpty {
-            MarkdownText(message.text)
-                .font(.footnote)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
-                .background(
-                    message.role == .user ? Color.accentColor.opacity(0.35) : Color.gray.opacity(0.2),
-                    in: RoundedRectangle(cornerRadius: 12)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.leading, 18)
+
+        case .assistant:
+            VStack(alignment: .leading, spacing: 5) {
+                AssistantAvatar(size: 18)
+                MarkdownText(message.text)
+                    .font(.footnote)
+                    .opacity(message.isRefusal ? 0.6 : 1)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color.white.opacity(0.1),
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 4, bottomLeadingRadius: 16,
+                    bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous
                 )
-                .opacity(message.isRefusal ? 0.6 : 1)
-            }
-            if let cost = message.costUSD {
-                Text("≈ \(Pricing.format(cost))")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
-                    .padding(.leading, 4)
-            }
+            )
         }
     }
 }
+
+private struct WatchTypingIndicator: View {
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(Theme.accentLight)
+                        .frame(width: 6, height: 6)
+                        .opacity(0.3 + 0.7 * max(0, sin(t * 5 - Double(i) * 0.8)))
+                }
+            }
+        }
+        .accessibilityLabel("Claude sta scrivendo")
+    }
+}
+
+/// Capsula in Liquid Glass su watchOS 26+, gradiente sulle versioni precedenti.
+struct WatchGlassCapsule: ViewModifier {
+    var prominent = false
+
+    func body(content: Content) -> some View {
+        if #available(watchOS 26.0, *) {
+            content.glassEffect(
+                prominent ? .regular.tint(Theme.accent).interactive() : .regular.interactive(),
+                in: .capsule
+            )
+        } else {
+            content.background(
+                prominent ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(Color.white.opacity(0.12)),
+                in: Capsule()
+            )
+        }
+    }
+}
+
+// MARK: - Scelta del modello
 
 struct WatchModelPicker: View {
     let conversationID: UUID
@@ -134,10 +227,10 @@ struct WatchModelPicker: View {
                     dismiss()
                 } label: {
                     HStack {
-                        Text(model.displayName)
+                        Text(settings.displayName(for: model.id))
                         Spacer()
                         if store.conversation(conversationID)?.model == model.id {
-                            Image(systemName: "checkmark")
+                            Image(systemName: "checkmark").foregroundStyle(Theme.accent)
                         }
                     }
                 }
